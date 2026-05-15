@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Füd — Campus Food, Delivered</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app"></div>
+  <div id="toast-container"></div>
+  <div id="overlay" class="overlay hidden" onclick="closeModal()"></div>
+  <div id="modal" class="modal hidden"><div id="modal-box" class="modal-box"></div></div>
+  <div id="sidebar-overlay" class="sidebar-bg-overlay hidden" onclick="closeSidebar()"></div>
+  <div id="notif-panel" class="notif-panel hidden"></div>
+  <div id="notif-backdrop" class="hidden" style="position:fixed;inset:0;z-index:499" onclick="closeNotifPanel()"></div>
+  <div id="page-loader" class="page-loader hidden"></div>
+  <script>
+    /* ===== RESTAURANT REVIEWS VIEW ===== */
+    function renderRestaurantReviews() {
+      const user = state.currentUser;
+      const reviews = DB.getArr('reviews').filter(r => {
+        const rest = DB.getArr('restaurants').find(res => res.ownerId === user.id);
+        return rest && r.restaurantId === rest.id;
+      }).sort((a, b) => b.createdAt - a.createdAt);
+
+      const avgRating = reviews.length > 0 
+        ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+        : 0;
+
+      return dashShell('restaurant/reviews', 'restaurant', 'Reviews & Feedback', '', `
+        <div class="page-header">
+          <h2>Customer Reviews</h2>
+          <p>Manage and respond to customer feedback</p>
+        </div>
+        
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+          <div class="stat-card orange">
+            <div class="stat-label">Total Reviews</div>
+            <div class="stat-value">${reviews.length}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Average Rating</div>
+            <div class="stat-value">${avgRating}★</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Responses</div>
+            <div class="stat-value">${reviews.filter(r => r.response).length}</div>
+          </div>
+        </div>
+
+        ${reviews.length === 0 ? `
+          <div class="empty-state">
+            <div class="empty-icon">⭐</div>
+            <h3>No reviews yet</h3>
+            <p>Customer reviews will appear here once you start receiving orders.</p>
+          </div>
+        ` : `
+          <div style="display:flex;flex-direction:column;gap:16px">
+            ${reviews.map(review => `
+              <div class="review-card" style="border-left:4px solid ${[0,0,'#EF4444','#F97316','#FBBF24','#10B981'][review.rating] || '#E5E7EB'}">
+                <div class="review-card-header">
+                  <div>
+                    <strong>${escape(review.studentName)}</strong>
+                    <div class="review-stars" style="letter-spacing:1px;margin-top:4px">${starsHTML(review.rating)}</div>
+                    <p style="font-size:0.8rem;color:var(--text-muted);margin-top:4px">${fmtDate(review.createdAt)}</p>
+                  </div>
+                  ${review.reported ? '<span class="badge badge-red">🚩 Reported</span>' : ''}
+                </div>
+                <p style="margin-top:12px;margin-bottom:12px;color:var(--text-secondary)">${escape(review.comment)}</p>
+                
+                ${review.response ? `
+                  <div style="background:var(--surface-warm);border-left:3px solid var(--primary);padding:12px 14px;border-radius:var(--radius-sm);margin-bottom:12px">
+                    <strong style="color:var(--primary);font-size:0.85rem">Your Response</strong>
+                    <p style="font-size:0.85rem;color:var(--text);margin-top:4px">${escape(review.response)}</p>
+                  </div>
+                ` : `
+                  <button class="btn btn-sm btn-outline" onclick="openReplyModal('${review.id}')">✏️ Reply</button>
+                `}
+              </div>
+            `).join('')}
+          </div>
+        `}
+      `);
+    }
+
+    function openReplyModal(reviewId) {
+      const reviews = DB.getArr('reviews');
+      const review = reviews.find(r => r.id === reviewId);
+      if (!review) return;
+
+      openModal(`
+        <h3>Reply to Review</h3>
+        <p style="color:var(--text-secondary);font-size:0.9rem;margin-bottom:16px">
+          From <strong>${escape(review.studentName)}</strong>
+          <br/>
+          <span class="review-stars" style="display:inline-block;margin-top:4px">${starsHTML(review.rating)}</span>
+        </p>
+        <p style="background:var(--surface-warm);padding:12px;border-radius:var(--radius);font-size:0.9rem;margin-bottom:16px;color:var(--text-secondary)">
+          "${escape(review.comment)}"
+        </p>
+        <div class="form-group">
+          <label>Your Response</label>
+          <textarea class="form-control" id="reply-text" placeholder="Thank you for your feedback! Write your response here..." style="min-height:120px"></textarea>
+          <p class="form-hint">Keep it professional and helpful.</p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitRestaurantReply('${reviewId}')">Send Reply</button>
+        </div>
+      `);
+    }
+
+    function submitRestaurantReply(reviewId) {
+      const replyText = el('reply-text').value.trim();
+      if (!replyText) {
+        toast('Please write a response', 'warning');
+        return;
+      }
+
+      const reviews = DB.getArr('reviews');
+      const idx = reviews.findIndex(r => r.id === reviewId);
+      if (idx === -1) return;
+
+      reviews[idx].response = replyText;
+      DB.set('reviews', reviews);
+      
+      closeModal();
+      toast('Reply posted successfully', 'success');
+      _silentRefresh('/restaurant/reviews');
+    }
+  </script>
+  <script src="script.js"></script>
+</body>
+</html>
