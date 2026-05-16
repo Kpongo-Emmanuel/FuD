@@ -1,0 +1,38 @@
+Looking at what's been built, here's what's still needed to fully complete the site:
+Missing Pages & Views
+
+⦁	Email verification flow with actual token-based links (currently simulated)
+⦁	Reset password page (the form exists but no /reset-password render function)
+⦁	Restaurant review response page (restaurants can't reply to reviews from their side) [In progress: Emma]
+⦁	Order receipt/invoice page (printable breakdown after delivery)
+⦁	Terms of Service / Legal page (currently cancellation/refund issues redirect nowhere)
+⦁	"Unauthorized" page is defined but not wired to role mismatches properly
+⦁	Missing Functionality
+⦁	
+⦁	Restaurant dashboard needs a live order notification system (auto-refresh or polling)
+⦁	Admin needs to be able to assign courier companies to orders manually
+⦁	Courier company needs to be able to assign a specific courier to a specific order ✅
+⦁	Student wallet top-up is mocked — needs a real payment gateway hook (Paystack/Flutterwave)
+⦁	Promo code validation doesn't persist the discount properly into the placed order in all cases
+⦁	Search/filter on the restaurant browse page only filters by text, not by cuisine, rating, or open status ✅
+⦁	UI/UX Gaps
+⦁	
+⦁	No mobile sidebar toggle functionality (the button exists in CSS but the JS click handler isn't wired)
+⦁	No loading states between page transitions
+⦁	Restaurant cards don't show if a restaurant is closed based on current time ✅
+⦁	No pagination on orders, users, or reviews tables (will break with large data)
+⦁	Cart badge in the sidebar doesn't update dynamically after adding items on the restaurant page ✅
+⦁	Data & Logic Gaps
+⦁	
+⦁	No way for admin to moderate restaurants (suspend/approve) [In progress: Emma]
+⦁	No way for restaurants to mark themselves open/closed manually 
+⦁	Courier assignment to orders is random (first available) — companies need a manual assign UI
+⦁	Reviews on the restaurant page itself aren't shown to students browsing
+⦁	No notification system (in-app alerts for new orders, status changes, etc.)
+⦁	Polish
+
+⦁	Responsive layout on mobile needs the sidebar overlay and toggle fully wired
+⦁	Form validation messages are inconsistent across pages
+⦁	Empty states for admin orders page is missing 
+
+The biggest priorities would be: mobile sidebar toggle, restaurant order notification/refresh, courier assignment UI, and the receipt page — those are the most user-facing gaps. lets do it sequentially and step by step
