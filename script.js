@@ -2,7 +2,30 @@
 const APP_NAME = 'Füd';
 const PLATFORM_FEE = 25;
 const POLL_INTERVAL = 30000; // 30 seconds
-const PAGE_SIZE = 8;         // rows per page in admin tables
+const PAGE_SIZE = 8;
+
+/* ===== PAGINATION HELPERS ===== */
+function paginate(arr, page) {
+  const total = arr.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const p = Math.min(Math.max(1, page), pages);
+  return { items: arr.slice((p - 1) * PAGE_SIZE, p * PAGE_SIZE), page: p, pages, total };
+}
+
+function paginationHTML(pages, page, navFn) {
+  if (pages <= 1) return '';
+  let h = `<div class="pagination" style="margin-top:20px">`;
+  h += `<button class="page-btn" ${page===1?'disabled':''} onclick="${navFn}(${page-1})">‹</button>`;
+  for (let i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || Math.abs(i - page) <= 1) {
+      h += `<button class="page-btn ${i===page?'active':''}" onclick="${navFn}(${i})">${i}</button>`;
+    } else if (Math.abs(i - page) === 2) {
+      h += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+    }
+  }
+  h += `<button class="page-btn" ${page===pages?'disabled':''} onclick="${navFn}(${page+1})">›</button>`;
+  return h + '</div>';
+}
 
 /* ===== APP STATE ===== */
 const state = {
@@ -149,32 +172,6 @@ const uid = () => 'id_' + Math.random().toString(36).slice(2, 10);
 const el = (id) => document.getElementById(id);
 const escape = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const starsHTML = (n) => '★'.repeat(Math.round(n)) + '☆'.repeat(5-Math.round(n));
-
-/* ===== PAGINATION HELPER ===== */
-function paginate(arr, page) {
-  const total = arr.length;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const p = Math.min(Math.max(1, page), pages);
-  return {
-    items: arr.slice((p - 1) * PAGE_SIZE, p * PAGE_SIZE),
-    page: p, pages, total
-  };
-}
-
-function paginationHTML(pages, page, navFn) {
-  if (pages <= 1) return '';
-  let h = `<div class="pagination" style="margin-top:20px">`;
-  h += `<button class="page-btn" ${page===1?'disabled':''} onclick="${navFn}(${page-1})">‹</button>`;
-  for (let i = 1; i <= pages; i++) {
-    if (i === 1 || i === pages || Math.abs(i - page) <= 1) {
-      h += `<button class="page-btn ${i===page?'active':''}" onclick="${navFn}(${i})">${i}</button>`;
-    } else if (i === 2 || i === pages - 1) {
-      h += `<span class="page-ellipsis">...</span>`;
-    }
-  }
-  h += `<button class="page-btn" ${page===pages?'disabled':''} onclick="${navFn}(${page+1})">›</button>`;
-  return h + '</div>';
-}
 
 function statusBadge(status) {
   const map = {
@@ -351,7 +348,7 @@ function router() {
   const { path, params } = getRoute();
   const user = state.currentUser;
 
-  const studentRoutes = ['/student/home','/student/restaurant','/student/cart','/student/checkout','/student/orders','/student/tracking','/student/profile','/student/review','/student/receipt'];
+  const studentRoutes = ['/student/home','/student/restaurant','/student/cart','/student/checkout','/student/orders','/student/tracking','/student/profile','/student/review'];
   const restaurantRoutes = ['/restaurant/dashboard','/restaurant/menu','/restaurant/orders','/restaurant/earnings','/restaurant/profile','/restaurant/reviews'];
   const companyRoutes = ['/company/dashboard','/company/couriers','/company/deliveries','/company/earnings'];
   const courierRoutes = ['/courier/deliveries','/courier/profile'];
@@ -379,7 +376,6 @@ function router() {
     '/student/tracking': () => renderStudentTracking(params),
     '/student/profile': renderStudentProfile,
     '/student/review': () => renderStudentReview(params),
-    '/student/receipt': () => renderStudentReceipt(params),
     '/restaurant/dashboard': renderRestaurantDashboard,
     '/restaurant/menu': renderRestaurantMenu,
     '/restaurant/orders': renderRestaurantOrders,
@@ -393,8 +389,8 @@ function router() {
     '/courier/deliveries': renderCourierDeliveries,
     '/courier/profile': renderCourierProfile,
     '/admin/dashboard': renderAdminDashboard,
-    '/admin/users': renderAdminUsers,
-    '/admin/reviews': renderAdminReviews,
+    '/admin/users': () => renderAdminUsers(params),
+    '/admin/reviews': () => renderAdminReviews(params),
     '/unauthorized': renderUnauthorized,
   };
 
@@ -517,36 +513,10 @@ function clearCartAndAdd(itemId, restaurantId) {
 }
 
 function refreshCartBadge() {
-  const count = cartCount();
-
-  // 1. Any explicit .cart-badge-count elements (cart button on restaurant page header)
   document.querySelectorAll('.cart-badge-count').forEach(el => {
-    el.textContent = count || '';
-    el.style.display = count ? '' : 'none';
+    el.textContent = cartCount() || '';
+    el.style.display = cartCount() ? '' : 'none';
   });
-
-  // 2. Sidebar "My Cart" nav-badge — injected/removed directly in the DOM
-  const cartNavItem = document.querySelector('.nav-item[onclick*="student/cart"]');
-  if (cartNavItem) {
-    let badge = cartNavItem.querySelector('.nav-badge');
-    if (count > 0) {
-      if (!badge) {
-        badge = document.createElement('span');
-        badge.className = 'nav-badge';
-        cartNavItem.appendChild(badge);
-      }
-      badge.textContent = count;
-    } else {
-      if (badge) badge.remove();
-    }
-  }
-
-  // 3. Header cart count bubble on the browse/restaurant pages
-  const headerCount = el('header-cart-count');
-  if (headerCount) {
-    headerCount.textContent = count || '';
-    headerCount.style.display = count > 0 ? '' : 'none';
-  }
 }
 
 /* ===== ORDER HELPERS ===== */
@@ -942,12 +912,13 @@ function renderStudentHome() {
   const restaurants = DB.getArr('restaurants');
   const orders = DB.getArr('orders').filter(o => o.studentId === state.currentUser.id);
   const activeOrder = orders.find(o => !['delivered','cancelled'].includes(o.status));
+  const cuisines = [...new Set(restaurants.map(r => r.cuisine))].sort();
 
   return dashShell('student/home','student','Browse Food',
     `<div style="display:flex;align-items:center;gap:10px">
-      <div class="search-bar" style="width:240px">
+      <div class="search-bar" style="width:220px">
         <span class="search-icon">🔍</span>
-        <input class="form-control" id="rest-search" placeholder="Search restaurants..." oninput="filterRestaurants(this.value)" style="font-size:0.875rem"/>
+        <input class="form-control" id="rest-search" placeholder="Search restaurants..." oninput="applyRestaurantFilters()" style="font-size:0.875rem"/>
       </div>
       <div style="position:relative;display:inline-flex">
         <button class="btn btn-ghost btn-icon btn-sm" onclick="navigate('/student/cart')" title="Cart">🛒</button>
@@ -957,30 +928,54 @@ function renderStudentHome() {
     `
     ${activeOrder ? `
       <div style="background:var(--primary);color:#fff;border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <strong>Order in progress</strong> — ${activeOrder.restaurantName}
-        </div>
+        <div><strong>Order in progress</strong> — ${activeOrder.restaurantName}</div>
         <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="navigate('/student/tracking?id=${activeOrder.id}')">Track Order →</button>
       </div>` : ''}
-    <div class="page-header">
-      <h2>Restaurants Near You</h2>
-      <p>Ordering to: ${escape(state.currentUser.address || 'Set your address in profile')}</p>
+
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+      <div class="filter-bar" style="margin-bottom:0;flex:1;min-width:0">
+        <button class="filter-chip active" data-cuisine="all" onclick="setCuisineFilter('all')">All</button>
+        ${cuisines.map(c => `<button class="filter-chip" data-cuisine="${c}" onclick="setCuisineFilter('${c}')">${c}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        <button class="filter-chip" id="filter-open" onclick="toggleOpenFilter()">● Open only</button>
+        <select class="form-control" id="filter-sort" onchange="applyRestaurantFilters()" style="padding:7px 12px;font-size:0.8375rem;height:36px;width:auto">
+          <option value="default">Sort: Default</option>
+          <option value="rating">Top Rated</option>
+          <option value="delivery">Lowest Fee</option>
+          <option value="name">A–Z</option>
+        </select>
+      </div>
     </div>
+
+    <div style="margin-bottom:16px">
+      <p style="color:var(--text-secondary);font-size:0.9rem">Ordering to: <strong>${escape(state.currentUser.address || 'Set your address in profile')}</strong> · <span id="rest-count">${restaurants.length}</span> restaurants</p>
+    </div>
+
     <div class="restaurant-grid" id="restaurant-grid">
       ${restaurants.map(r => restaurantCardHTML(r)).join('')}
+    </div>
+    <div id="rest-empty" class="empty-state hidden">
+      <div class="empty-icon">🍽️</div>
+      <h3>No restaurants match</h3>
+      <p>Try adjusting your filters or search term.</p>
+      <button class="btn btn-outline btn-sm" onclick="resetRestaurantFilters()">Clear Filters</button>
     </div>`
   );
 }
 
 function restaurantCardHTML(r) {
   const open = isOpenNow(r);
+  const suspended = r.suspended || false;
   return `
-    <div class="restaurant-card ${open ? '' : 'closed'}" onclick="navigate('/student/restaurant?id=${r.id}')">
+    <div class="restaurant-card ${open && !suspended ? '' : 'closed'}" onclick="navigate('/student/restaurant?id=${r.id}')">
       <div class="restaurant-thumb">
         <span style="font-size:3.5rem">${r.emoji}</span>
-        ${open
-          ? '<span class="badge badge-green" style="position:absolute;top:12px;right:12px">● Open</span>'
-          : '<span class="badge badge-gray" style="position:absolute;top:12px;right:12px">● Closed</span>'}
+        ${suspended
+          ? '<span class="badge badge-red" style="position:absolute;top:12px;right:12px">⛔ Suspended</span>'
+          : open
+            ? '<span class="badge badge-green" style="position:absolute;top:12px;right:12px">● Open</span>'
+            : '<span class="badge badge-gray" style="position:absolute;top:12px;right:12px">● Closed</span>'}
       </div>
       <div class="restaurant-info">
         <h3>${escape(r.name)}</h3>
@@ -992,7 +987,7 @@ function restaurantCardHTML(r) {
           <span class="tag">${r.cuisine}</span>
           <span class="tag">${r.openTime}–${r.closeTime}</span>
           ${r.promoCodes.length ? '<span class="tag" style="background:var(--primary-bg);color:var(--primary)">🏷 Promo</span>' : ''}
-          ${!r.isOpen ? '<span class="tag" style="background:var(--error-bg);color:var(--error)">Manually closed</span>' : ''}
+          ${suspended ? '<span class="tag" style="background:var(--error-bg);color:var(--error)">⛔ Suspended</span>' : !r.isOpen ? '<span class="tag" style="background:var(--error-bg);color:var(--error)">Manually closed</span>' : ''}
         </div>
       </div>
     </div>`;
@@ -1011,7 +1006,10 @@ function renderStudentRestaurant({ id } = {}) {
       <button class="btn btn-primary btn-sm" onclick="navigate('/student/cart')">🛒 Cart${cartCount() > 0 ? ` (${cartCount()})` : ''}</button>
     </div>`,
     `
-    ${!isOpenNow(r) ? `
+    ${r.suspended ? `
+      <div style="background:var(--error-bg);border:1px solid #fecaca;color:var(--error);border-radius:var(--radius-lg);padding:14px 20px;margin-bottom:20px;font-weight:600">
+        ⛔ This restaurant has been suspended by the platform and is not currently accepting orders.
+      </div>` : !isOpenNow(r) ? `
       <div style="background:var(--error-bg);border:1px solid #fecaca;color:var(--error);border-radius:var(--radius-lg);padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:10px;font-weight:600">
         🔴 This restaurant is currently closed and not accepting orders.
         <span style="font-weight:400;color:var(--text-secondary);margin-left:4px">Opens ${r.openTime} – closes ${r.closeTime}</span>
@@ -1026,7 +1024,7 @@ function renderStudentRestaurant({ id } = {}) {
             <span>⭐ <strong>${r.rating}</strong> (${r.reviewCount} reviews)</span>
             <span>🚴 Delivery: <strong>${fmt(r.deliveryFee)}</strong></span>
             <span>🕐 ${r.openTime} – ${r.closeTime}</span>
-            ${isOpenNow(r) ? '<span class="badge badge-green">● Open Now</span>' : '<span class="badge badge-red">● Closed</span>'}
+            ${r.suspended ? '<span class="badge badge-red">⛔ Suspended</span>' : isOpenNow(r) ? '<span class="badge badge-green">● Open Now</span>' : '<span class="badge badge-red">● Closed</span>'}
           </div>
           ${r.promoCodes.length ? `<div style="margin-top:8px" class="flex gap-2">${r.promoCodes.map(p=>`<span class="badge badge-orange">🏷 Use <strong>${p.code}</strong> for ${p.type==='percent'?p.value+'% off':'₦'+p.value+' off'} (min ${fmt(p.min)})</span>`).join('')}</div>` : ''}
         </div>
@@ -1040,7 +1038,7 @@ function renderStudentRestaurant({ id } = {}) {
           <div class="menu-grid">
             ${items.map(item => {
               const inCart = state.cart.find(c => c.id === item.id);
-              const canOrder = isOpenNow(r);
+              const canOrder = isOpenNow(r) && !r.suspended;
               return `
                 <div class="menu-item">
                   <div class="menu-item-icon">${item.emoji}</div>
@@ -1050,7 +1048,7 @@ function renderStudentRestaurant({ id } = {}) {
                     <div class="menu-item-bottom">
                       <span class="menu-item-price">${fmt(item.price)}</span>
                       ${!canOrder
-                        ? `<span style="font-size:0.75rem;color:var(--text-muted)">Closed</span>`
+                        ? `<span style="font-size:0.75rem;color:var(--text-muted)">${r.suspended ? 'Unavailable' : 'Closed'}</span>`
                         : inCart ? `
                           <div class="qty-control">
                             <button class="qty-btn" onclick="cartQty('${item.id}','${r.id}',-1)">−</button>
@@ -1069,7 +1067,36 @@ function renderStudentRestaurant({ id } = {}) {
           <div><strong>${cartCount()} item${cartCount()>1?'s':''}</strong> in cart · <strong>${fmt(cartTotal())}</strong></div>
           <button class="btn" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4)" onclick="navigate('/student/cart')">View Cart →</button>
         </div>
-      </div>` : ''}`
+      </div>` : ''}
+
+    <!-- STEP 9: Customer reviews on restaurant page -->
+    ${(() => {
+      const reviews = DB.getArr('reviews').filter(rv => rv.restaurantId === r.id);
+      if (!reviews.length) return '';
+      return `
+        <div class="card" style="margin-top:32px">
+          <div class="card-header">
+            <h3>⭐ Customer Reviews <span class="badge badge-gray" style="margin-left:6px">${reviews.length}</span></h3>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            ${reviews.sort((a,b) => b.createdAt - a.createdAt).map(rv => `
+              <div style="padding:14px;border:1px solid var(--border-light);border-radius:var(--radius);background:var(--surface)">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div>
+                    <strong style="font-size:0.9rem">${escape(rv.studentName)}</strong>
+                    <span style="color:#F59E0B;margin-left:8px;font-size:0.85rem">${starsHTML(rv.rating)}</span>
+                  </div>
+                  <span style="font-size:0.75rem;color:var(--text-muted)">${fmtDateShort(rv.createdAt)}</span>
+                </div>
+                <p style="font-size:0.875rem;color:var(--text);margin-bottom:${rv.response ? '8px' : '0'}">${escape(rv.comment)}</p>
+                ${rv.response ? `
+                  <div style="background:var(--surface-warm);border-left:3px solid var(--primary);padding:8px 12px;border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:0.825rem">
+                    <strong style="color:var(--primary)">Restaurant replied:</strong> ${escape(rv.response)}
+                  </div>` : ''}
+              </div>`).join('')}
+          </div>
+        </div>`;
+    })()}`
   );
 }
 
@@ -1216,7 +1243,6 @@ function renderStudentOrders({ filter } = {}) {
                   ${['pending','accepted','preparing','ready','picked_up'].includes(o.status) ? `<button class="btn btn-sm btn-outline" onclick="navigate('/student/tracking?id=${o.id}')">Track</button>` : ''}
                   ${o.status==='delivered' && !o.reviewed ? `<button class="btn btn-sm btn-primary" onclick="navigate('/student/review?orderId=${o.id}')">Review</button>` : ''}
                   ${o.status==='delivered' && o.reviewed ? `<span class="badge badge-green">✓ Reviewed</span>` : ''}
-                  ${o.status==='delivered' ? `<button class="btn btn-sm btn-ghost" onclick="navigate('/student/receipt?id=${o.id}')">🧾 Receipt</button>` : ''}
                 </div>
               </td>
             </tr>`).join('')}
@@ -1297,10 +1323,114 @@ function renderStudentTracking({ id } = {}) {
           </div>` : ''}
         ${order.status === 'delivered' && !order.reviewed ? `
           <button class="btn btn-primary btn-full" style="margin-top:16px" onclick="navigate('/student/review?orderId=${order.id}')">⭐ Leave a Review</button>` : ''}
-        ${order.status === 'delivered' ? `
-          <button class="btn btn-outline btn-full" style="margin-top:10px" onclick="navigate('/student/receipt?id=${order.id}')">🧾 View Receipt</button>` : ''}
       </div>
     </div>`);
+}
+
+function renderStudentReceipt({ orderId } = {}) {
+  const order = DB.getArr('orders').find(o => o.id === orderId && o.studentId === state.currentUser.id);
+  if (!order || order.status !== 'delivered') { navigate('/student/orders'); return ''; }
+  const rest = DB.getArr('restaurants').find(r => r.id === order.restaurantId);
+
+  return dashShell('student/receipt','student','Order Receipt',
+    `<button class="btn btn-ghost btn-sm" onclick="navigate('/student/orders')">← Back</button>
+     <button class="btn btn-primary btn-sm" onclick="printReceipt()">🖨️ Print Receipt</button>`,
+    `
+    <div class="container-sm" style="margin:0">
+      <div class="card print-receipt" id="receipt-content">
+        <div style="text-align:center;margin-bottom:24px;border-bottom:2px solid var(--border);padding-bottom:16px">
+          <div style="font-size:2.5rem;margin-bottom:8px">${rest?.emoji||'🍽️'}</div>
+          <h2 style="margin:0;margin-bottom:4px">${escape(rest?.name||'Restaurant')}</h2>
+          <p style="color:var(--text-secondary);margin:0;font-size:0.9rem">${escape(rest?.address||'')}</p>
+          <p style="color:var(--text-secondary);margin:4px 0 0 0;font-size:0.9rem">${escape(rest?.phone||'')}</p>
+        </div>
+
+        <div style="text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:1px dashed var(--border)">
+          <p style="font-size:0.85rem;color:var(--text-secondary);margin:0">ORDER RECEIPT</p>
+          <h3 style="margin:4px 0;font-family:monospace">#${order.id.slice(-8).toUpperCase()}</h3>
+          <p style="font-size:0.85rem;color:var(--text-secondary);margin:4px 0 0 0">${new Date(order.createdAt).toLocaleString('en-NG')}</p>
+        </div>
+
+        <div style="margin-bottom:20px">
+          <h4 style="margin:0 0 12px 0;text-transform:uppercase;font-size:0.8rem;letter-spacing:1px">Items Ordered</h4>
+          ${order.items.map(i=>`
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.95rem;padding:4px 0">
+              <span>${escape(i.name)} <span style="color:var(--text-secondary)">×${i.qty}</span></span>
+              <span style="font-weight:600">${fmt(i.price * i.qty)}</span>
+            </div>`).join('')}
+        </div>
+
+        <div style="border-top:1px dashed var(--border);border-bottom:2px solid var(--border);padding:12px 0;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.9rem;color:var(--text-secondary)">
+            <span>Subtotal</span>
+            <span>${fmt(order.subtotal)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.9rem;color:var(--text-secondary)">
+            <span>Delivery Fee</span>
+            <span>${fmt(order.deliveryFee)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.9rem;color:var(--text-secondary)">
+            <span>Courier Charge</span>
+            <span>${fmt(order.serviceCharge)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.9rem;color:var(--text-secondary)">
+            <span>Platform Fee</span>
+            <span>${fmt(order.platformFee)}</span>
+          </div>
+          ${order.discount ? `<div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.9rem;color:var(--success)">
+            <span>Discount Applied</span>
+            <span>−${fmt(order.discount)}</span>
+          </div>` : ''}
+          <div style="display:flex;justify-content:space-between;font-weight:700;font-size:1.1rem;margin-top:12px">
+            <span>TOTAL PAID</span>
+            <span>${fmt(order.total)}</span>
+          </div>
+        </div>
+
+        ${order.courierName ? `
+          <div style="background:var(--bg-secondary);padding:12px;border-radius:var(--radius-sm);margin-bottom:16px">
+            <p style="margin:0 0 8px 0;font-size:0.8rem;text-transform:uppercase;color:var(--text-secondary)">Delivery By</p>
+            <p style="margin:0;font-weight:600">${escape(order.courierName)}</p>
+          </div>` : ''}
+
+        <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px dashed var(--border)">
+          <p style="font-size:0.85rem;color:var(--text-secondary);margin:0">Thank you for your order!</p>
+          <p style="font-size:0.8rem;color:var(--text-secondary);margin:4px 0 0 0">For inquiries: ${escape(rest?.phone||'support@fud.ng')}</p>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:24px">
+        <button class="btn btn-outline btn-full" onclick="navigate('/student/orders')">Back to Orders</button>
+        <button class="btn btn-primary btn-full" onclick="printReceipt()">🖨️ Print Receipt</button>
+      </div>
+    </div>`);
+}
+
+function printReceipt() {
+  const content = el('receipt-content');
+  if (!content) return;
+  const printWin = window.open('', '_blank');
+  printWin.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Order Receipt</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; padding: 20px; }
+        .print-receipt { border: 1px solid #ddd; padding: 20px; }
+        h2, h3, h4 { margin: 0; }
+        div { margin: 0; }
+        .summary-line { display: flex; justify-content: space-between; }
+        @media print { body { margin: 0; padding: 10px; } }
+      </style>
+    </head>
+    <body>
+      ${content.innerHTML}
+    </body>
+    </html>
+  `);
+  printWin.document.close();
+  setTimeout(() => printWin.print(), 250);
 }
 
 function renderStudentReview({ orderId } = {}) {
@@ -1329,62 +1459,6 @@ function renderStudentReview({ orderId } = {}) {
           <textarea class="form-control" id="review-comment" rows="4" placeholder="How was your food and delivery experience?"></textarea>
         </div>
         <button class="btn btn-primary btn-full" onclick="submitReview('${orderId}','${order.restaurantId}')">Submit Review</button>
-      </div>
-    </div>`);
-}
-
-function renderStudentReceipt({ id } = {}) {
-  const order = DB.getArr('orders').find(o => o.id === id && o.studentId === state.currentUser.id);
-  if (!order) { navigate('/student/orders'); return ''; }
-  const rest = DB.getArr('restaurants').find(r => r.id === order.restaurantId);
-
-  return dashShell('student/orders', 'student', 'Order Receipt',
-    `<div class="flex items-center gap-2 no-print">
-      <button class="btn btn-ghost btn-sm" onclick="navigate('/student/orders')">← My Orders</button>
-      <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ Print</button>
-    </div>`,
-    `<div class="receipt-wrap">
-      <div class="receipt-card">
-
-        <div class="receipt-header">
-          <div style="font-family:var(--font-display);font-size:2rem;font-weight:800;color:var(--primary);margin-bottom:4px">${APP_NAME}</div>
-          <div style="font-size:0.85rem;color:var(--text-muted)">Campus Food Delivery Platform</div>
-          <div style="margin-top:16px;font-size:1.5rem">🧾</div>
-          <h2 style="font-size:1.125rem;margin-top:6px;color:var(--text)">Order Receipt</h2>
-        </div>
-
-        <div class="receipt-row"><span class="rl">Order ID</span><strong>#${order.id.slice(-12).toUpperCase()}</strong></div>
-        <div class="receipt-row"><span class="rl">Restaurant</span><strong>${escape(order.restaurantName)}</strong></div>
-        <div class="receipt-row"><span class="rl">Delivery Address</span><span style="text-align:right;max-width:55%">${escape(order.address)}</span></div>
-        <div class="receipt-row"><span class="rl">Order Date</span><span>${fmtDate(order.createdAt)}</span></div>
-        ${order.deliveredAt ? `<div class="receipt-row"><span class="rl">Delivered At</span><span>${fmtDate(order.deliveredAt)}</span></div>` : ''}
-        ${order.courierName ? `<div class="receipt-row"><span class="rl">Courier</span><span>${escape(order.courierName)}</span></div>` : ''}
-
-        <div style="margin:16px 0 8px;font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em">Items Ordered</div>
-        ${order.items.map(i => `
-          <div class="receipt-row">
-            <span class="rl">${i.emoji} ${escape(i.name)} <span style="color:var(--text-muted)">×${i.qty}</span></span>
-            <span>${fmt(i.price * i.qty)}</span>
-          </div>`).join('')}
-
-        <div style="margin:16px 0 8px;font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em">Charges</div>
-        <div class="receipt-row"><span class="rl">Subtotal</span><span>${fmt(order.subtotal)}</span></div>
-        <div class="receipt-row"><span class="rl">🍽️ Restaurant delivery fee</span><span>${fmt(order.deliveryFee)}</span></div>
-        <div class="receipt-row"><span class="rl">🚴 Courier service charge</span><span>${fmt(order.serviceCharge)}</span></div>
-        <div class="receipt-row"><span class="rl">🟠 Füd platform fee</span><span>${fmt(order.platformFee)}</span></div>
-        ${order.discount ? `<div class="receipt-row" style="color:var(--success)"><span class="rl">🏷️ Promo discount${order.promoCode ? ` (${order.promoCode})` : ''}</span><span>−${fmt(order.discount)}</span></div>` : ''}
-
-        <div class="receipt-total">
-          <span>Total Paid</span>
-          <span>${fmt(order.total)}</span>
-        </div>
-
-        <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px dashed var(--border);font-size:0.8rem;color:var(--text-muted)">
-          <p>Paid via Füd Wallet</p>
-          <p style="margin-top:4px">Thank you for ordering with ${APP_NAME}! 🧡</p>
-          <p style="margin-top:8px;font-size:0.7rem">This is your official order receipt. Keep it for your records.</p>
-        </div>
-
       </div>
     </div>`);
 }
@@ -1615,6 +1689,86 @@ function renderRestaurantProfile() {
     </div>`);
 }
 
+/* ===== RESTAURANT REVIEWS VIEW ===== */
+function renderRestaurantReviews() {
+  const user = state.currentUser;
+  const rest = DB.getArr('restaurants').find(r => r.id === user.restaurantId);
+  if (!rest) return dashShell('restaurant/reviews','restaurant','Reviews','',`<div class="empty-state"><div class="empty-icon">⭐</div><h3>No restaurant found</h3></div>`);
+
+  const reviews = DB.getArr('reviews').filter(r => r.restaurantId === rest.id).sort((a,b) => b.createdAt - a.createdAt);
+  const avgRating = reviews.length > 0 ? (reviews.reduce((s,r) => s + r.rating, 0) / reviews.length).toFixed(1) : '—';
+  const unread = reviews.filter(r => !r.response).length;
+
+  return dashShell('restaurant/reviews','restaurant','Reviews & Feedback','',`
+    <div class="grid-3" style="margin-bottom:24px">
+      <div class="stat-card orange"><div class="stat-label">Total Reviews</div><div class="stat-value">${reviews.length}</div></div>
+      <div class="stat-card purple"><div class="stat-label">Avg Rating</div><div class="stat-value">${avgRating}${reviews.length ? '★' : ''}</div></div>
+      <div class="stat-card ${unread > 0 ? 'blue' : 'green'}"><div class="stat-label">Awaiting Reply</div><div class="stat-value">${unread}</div></div>
+    </div>
+    ${reviews.length === 0
+      ? `<div class="empty-state"><div class="empty-icon">⭐</div><h3>No reviews yet</h3><p>Reviews from customers will appear here once orders are delivered and rated.</p></div>`
+      : `<div style="display:flex;flex-direction:column;gap:14px">
+          ${reviews.map(r => `
+            <div class="review-card" style="border-left:4px solid ${r.rating >= 4 ? 'var(--success)' : r.rating === 3 ? 'var(--warning)' : 'var(--error)'}">
+              <div class="review-card-header">
+                <div>
+                  <strong>${escape(r.studentName)}</strong>
+                  <span class="review-stars" style="margin-left:8px;color:#F59E0B">${starsHTML(r.rating)}</span>
+                  <br/><span style="font-size:0.8rem;color:var(--text-muted)">${fmtDate(r.createdAt)}</span>
+                </div>
+                ${r.reported ? `<span class="badge badge-red">🚩 Reported</span>` : ''}
+              </div>
+              <p style="margin:10px 0;color:var(--text)">${escape(r.comment)}</p>
+              ${r.response
+                ? `<div style="background:var(--surface-warm);border-left:3px solid var(--primary);padding:10px 14px;border-radius:0 var(--radius-sm) var(--radius-sm) 0;margin-top:8px">
+                    <strong style="color:var(--primary);font-size:0.8rem;display:block;margin-bottom:4px">Your Response</strong>
+                    <p style="font-size:0.875rem;color:var(--text)">${escape(r.response)}</p>
+                    <button class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:0.75rem" onclick="openRestaurantReplyModal('${r.id}', true)">✏️ Edit Reply</button>
+                  </div>`
+                : `<button class="btn btn-outline btn-sm" onclick="openRestaurantReplyModal('${r.id}', false)">✏️ Reply to this review</button>`}
+            </div>`).join('')}
+        </div>`}
+  `);
+}
+
+function openRestaurantReplyModal(reviewId, isEdit) {
+  const reviews = DB.getArr('reviews');
+  const review = reviews.find(r => r.id === reviewId);
+  if (!review) return;
+
+  openModal(`
+    <h3>${isEdit ? 'Edit Your Response' : 'Reply to Review'}</h3>
+    <div style="background:var(--surface);padding:12px;border-radius:var(--radius);margin-bottom:16px">
+      <div class="review-stars" style="color:#F59E0B;margin-bottom:4px">${starsHTML(review.rating)}</div>
+      <p style="font-size:0.875rem;color:var(--text-secondary);font-style:italic">"${escape(review.comment)}"</p>
+      <p style="font-size:0.8rem;color:var(--text-muted);margin-top:4px">— ${escape(review.studentName)}</p>
+    </div>
+    <div class="form-group">
+      <label>Your Response</label>
+      <textarea class="form-control" id="reply-text" rows="4" placeholder="Thank you for your feedback! Write a helpful, professional response...">${isEdit ? escape(review.response || '') : ''}</textarea>
+      <p class="form-hint">Customers can see your response publicly on this restaurant.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitRestaurantReply('${reviewId}')">
+        ${isEdit ? 'Update Response' : 'Post Response'}
+      </button>
+    </div>`);
+}
+
+function submitRestaurantReply(reviewId) {
+  const replyText = el('reply-text')?.value?.trim();
+  if (!replyText) { toast('Please write a response.', 'warning'); return; }
+  const reviews = DB.getArr('reviews');
+  const idx = reviews.findIndex(r => r.id === reviewId);
+  if (idx === -1) return;
+  reviews[idx].response = replyText;
+  DB.set('reviews', reviews);
+  closeModal();
+  toast('Response posted!', 'success');
+  navigate('/restaurant/reviews');
+}
+
 /* ===== COURIER COMPANY VIEWS ===== */
 function renderCompanyDashboard() {
   const user = state.currentUser;
@@ -1840,52 +1994,75 @@ function renderAdminDashboard() {
     </div>`);
 }
 
-function renderAdminUsers() {
-  const users = DB.getArr('users').filter(u=>u.role!=='admin');
-  return dashShell('admin/users','admin','All Users','',`
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Verified</th><th>Joined</th><th>Actions</th></tr></thead>
+function renderAdminUsers({ page } = {}) {
+  const allUsers = DB.getArr('users').filter(u => u.role !== 'admin').sort((a,b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name));
+  const restaurants = DB.getArr('restaurants');
+  const { items: users, page: p, pages, total } = paginate(allUsers, Number(page) || 1);
+
+  return dashShell('admin/users','admin','All Users',
+    `<span style="font-size:0.875rem;color:var(--text-secondary)">${total} users total</span>`,
+    `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
       <tbody>
-        ${users.map(u=>`
+        ${users.map(u => {
+          const rest = u.role === 'restaurant' ? restaurants.find(r => r.id === u.restaurantId) : null;
+          const suspended = rest?.suspended || false;
+          return `
           <tr>
             <td><strong>${escape(u.name)}</strong></td>
             <td style="font-size:0.85rem">${escape(u.email)}</td>
             <td><span class="badge badge-orange">${u.role}</span></td>
-            <td>${u.verified ? '<span class="badge badge-green">✓ Verified</span>' : '<span class="badge badge-red">Unverified</span>'}</td>
+            <td>
+              ${u.verified ? '<span class="badge badge-green">✓ Verified</span>' : '<span class="badge badge-red">Unverified</span>'}
+              ${suspended ? '<span class="badge badge-red" style="margin-left:4px">⛔ Suspended</span>' : ''}
+            </td>
             <td style="font-size:0.85rem">${fmtDateShort(u.createdAt)}</td>
             <td>
-              ${!u.verified ? `<button class="btn btn-sm btn-primary" onclick="adminVerifyUser('${u.id}')">Verify</button>` : ''}
-              <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="adminDeleteUser('${u.id}')">Remove</button>
+              <div class="flex gap-2" style="flex-wrap:wrap">
+                ${!u.verified ? `<button class="btn btn-sm btn-primary" onclick="adminVerifyUser('${u.id}')">Verify</button>` : ''}
+                ${rest ? `<button class="btn btn-sm ${suspended ? 'btn-success' : 'btn-warning'}" onclick="adminToggleSuspend('${rest.id}')">${suspended ? '✅ Unsuspend' : '⛔ Suspend'}</button>` : ''}
+                <button class="btn btn-sm btn-danger" onclick="adminDeleteUser('${u.id}')">Remove</button>
+              </div>
             </td>
-          </tr>`).join('')}
+          </tr>`;}).join('')}
       </tbody>
-    </table></div>`);
+    </table></div>
+    ${paginationHTML(pages, p, 'adminUsersPage')}`);
 }
 
-function renderAdminReviews() {
-  const reviews = DB.getArr('reviews').sort((a,b)=>b.createdAt-a.createdAt);
-  return dashShell('admin/reviews','admin','Reviews & Moderation','',`
-    ${reviews.length===0?`<div class="empty-state"><div class="empty-icon">⭐</div><h3>No reviews yet</h3></div>`:`
-    <div style="display:grid;gap:14px">
-      ${reviews.map(r=>`
-        <div class="review-card">
-          <div class="review-card-header">
-            <div>
-              <strong>${escape(r.studentName)}</strong>
-              <span class="review-stars" style="margin-left:8px">${starsHTML(r.rating)}</span>
-              <br/><span style="font-size:0.8rem;color:var(--text-muted)">${fmtDateShort(r.createdAt)}</span>
+function adminUsersPage(page) { navigate('/admin/users?page=' + page); }
+
+function renderAdminReviews({ page } = {}) {
+  const allReviews = DB.getArr('reviews').sort((a,b) => b.createdAt - a.createdAt);
+  const { items: reviews, page: p, pages, total } = paginate(allReviews, Number(page) || 1);
+
+  return dashShell('admin/reviews','admin','Reviews & Moderation',
+    `<span style="font-size:0.875rem;color:var(--text-secondary)">${total} reviews total</span>`,
+    `${allReviews.length === 0
+      ? `<div class="empty-state"><div class="empty-icon">⭐</div><h3>No reviews yet</h3></div>`
+      : `<div style="display:grid;gap:14px">
+        ${reviews.map(r => `
+          <div class="review-card">
+            <div class="review-card-header">
+              <div>
+                <strong>${escape(r.studentName)}</strong>
+                <span class="review-stars" style="margin-left:8px">${starsHTML(r.rating)}</span>
+                <br/><span style="font-size:0.8rem;color:var(--text-muted)">${fmtDateShort(r.createdAt)}</span>
+              </div>
+              ${r.reported ? `<span class="badge badge-red">⚠️ Reported</span>` : ''}
             </div>
-            ${r.reported?`<span class="badge badge-red">⚠️ Reported</span>`:''}
-          </div>
-          <p style="font-size:0.9rem;color:var(--text)">${escape(r.comment)}</p>
-          ${r.response?`<p style="font-size:0.85rem;color:var(--text-secondary);margin-top:8px;padding:8px;background:var(--surface);border-radius:var(--radius-sm)"><em>Restaurant replied: ${escape(r.response)}</em></p>`:''}
-          <div class="flex gap-2" style="margin-top:10px">
-            ${r.reported?`<button class="btn btn-sm btn-danger" onclick="removeReview('${r.id}')">Remove Review</button><button class="btn btn-sm btn-ghost" onclick="clearReport('${r.id}')">Clear Report</button>`:''}
-            ${!r.reported?`<button class="btn btn-sm btn-outline" onclick="removeReview('${r.id}')">Remove</button>`:''}
-          </div>
-        </div>`).join('')}
-    </div>`}`);
+            <p style="font-size:0.9rem;color:var(--text)">${escape(r.comment)}</p>
+            ${r.response ? `<p style="font-size:0.85rem;color:var(--text-secondary);margin-top:8px;padding:8px;background:var(--surface);border-radius:var(--radius-sm)"><em>Restaurant replied: ${escape(r.response)}</em></p>` : ''}
+            <div class="flex gap-2" style="margin-top:10px">
+              ${r.reported ? `<button class="btn btn-sm btn-danger" onclick="removeReview('${r.id}')">Remove Review</button><button class="btn btn-sm btn-ghost" onclick="clearReport('${r.id}')">Clear Report</button>` : ''}
+              ${!r.reported ? `<button class="btn btn-sm btn-outline" onclick="removeReview('${r.id}')">Remove</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>
+      ${paginationHTML(pages, p, 'adminReviewsPage')}`}`);
 }
+
+function adminReviewsPage(page) { navigate('/admin/reviews?page=' + page); }
 
 /* ===== MISC VIEWS ===== */
 function renderUnauthorized() {
@@ -2046,14 +2223,71 @@ function confirmClearCart() {
     </div>`);
 }
 
-function filterRestaurants(query) {
-  const grid = el('restaurant-grid');
-  if (!grid) return;
-  const q = query.toLowerCase();
-  grid.querySelectorAll('.restaurant-card').forEach(card => {
-    card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+// Filter state — persists while on the home page
+const _restFilters = { cuisine: 'all', openOnly: false };
+
+function setCuisineFilter(cuisine) {
+  _restFilters.cuisine = cuisine;
+  document.querySelectorAll('[data-cuisine]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cuisine === cuisine);
   });
+  applyRestaurantFilters();
 }
+
+function toggleOpenFilter() {
+  _restFilters.openOnly = !_restFilters.openOnly;
+  const btn = el('filter-open');
+  if (btn) btn.classList.toggle('active', _restFilters.openOnly);
+  applyRestaurantFilters();
+}
+
+function resetRestaurantFilters() {
+  _restFilters.cuisine = 'all';
+  _restFilters.openOnly = false;
+  const searchEl = el('rest-search');
+  const sortEl = el('filter-sort');
+  if (searchEl) searchEl.value = '';
+  if (sortEl) sortEl.value = 'default';
+  document.querySelectorAll('[data-cuisine]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cuisine === 'all');
+  });
+  const openBtn = el('filter-open');
+  if (openBtn) openBtn.classList.remove('active');
+  applyRestaurantFilters();
+}
+
+function applyRestaurantFilters() {
+  const grid = el('restaurant-grid');
+  const emptyState = el('rest-empty');
+  const countEl = el('rest-count');
+  if (!grid) return;
+
+  const query    = (el('rest-search')?.value || '').toLowerCase().trim();
+  const sortBy   = el('filter-sort')?.value || 'default';
+  const cuisine  = _restFilters.cuisine;
+  const openOnly = _restFilters.openOnly;
+
+  let restaurants = DB.getArr('restaurants');
+  if (query)    restaurants = restaurants.filter(r =>
+    r.name.toLowerCase().includes(query) ||
+    r.cuisine.toLowerCase().includes(query) ||
+    r.description.toLowerCase().includes(query)
+  );
+  if (cuisine !== 'all') restaurants = restaurants.filter(r => r.cuisine === cuisine);
+  if (openOnly) restaurants = restaurants.filter(r => isOpenNow(r));
+  if (sortBy === 'rating')   restaurants = [...restaurants].sort((a,b) => b.rating - a.rating);
+  if (sortBy === 'delivery') restaurants = [...restaurants].sort((a,b) => a.deliveryFee - b.deliveryFee);
+  if (sortBy === 'name')     restaurants = [...restaurants].sort((a,b) => a.name.localeCompare(b.name));
+
+  grid.innerHTML = restaurants.map(r => restaurantCardHTML(r)).join('');
+  const visible = restaurants.length;
+  if (countEl) countEl.textContent = visible;
+  if (emptyState) emptyState.classList.toggle('hidden', visible > 0);
+  grid.style.display = visible > 0 ? '' : 'none';
+}
+
+// Legacy alias
+function filterRestaurants() { applyRestaurantFilters(); }
 
 /* ===== CHECKOUT HANDLERS ===== */
 function selectCompany(companyId) {
@@ -2523,6 +2757,18 @@ function adminVerifyUser(userId) {
   navigate('/admin/users');
 }
 
+function adminToggleSuspend(restaurantId) {
+  const restaurants = DB.getArr('restaurants');
+  const idx = restaurants.findIndex(r => r.id === restaurantId);
+  if (idx === -1) return;
+  restaurants[idx].suspended = !restaurants[idx].suspended;
+  if (restaurants[idx].suspended) restaurants[idx].isOpen = false;
+  DB.set('restaurants', restaurants);
+  const isSuspended = restaurants[idx].suspended;
+  toast(isSuspended ? `⛔ ${restaurants[idx].name} suspended.` : `✅ ${restaurants[idx].name} reinstated.`, isSuspended ? 'warning' : 'success');
+  navigate('/admin/users');
+}
+
 function adminDeleteUser(userId) {
   openModal(`<h3>Remove User?</h3><p>This will permanently remove the user account.</p>
     <div class="modal-actions">
@@ -2534,18 +2780,6 @@ function adminDeleteUser(userId) {
 function confirmAdminDeleteUser(userId) {
   DB.set('users', DB.getArr('users').filter(u => u.id !== userId));
   closeModal(); toast('User removed.', 'success'); navigate('/admin/users');
-}
-
-function removeReview(reviewId) {
-  DB.set('reviews', DB.getArr('reviews').filter(r => r.id !== reviewId));
-  toast('Review removed.', 'success'); navigate('/admin/reviews');
-}
-
-function clearReport(reviewId) {
-  const reviews = DB.getArr('reviews');
-  const idx = reviews.findIndex(r => r.id === reviewId);
-  if (idx !== -1) { reviews[idx].reported = false; DB.set('reviews', reviews); }
-  toast('Report cleared.', 'success'); navigate('/admin/reviews');
 }
 
 function removeReview(reviewId) {
@@ -2585,6 +2819,12 @@ window.isOpenNow = isOpenNow;
 window.adminToggleSuspend = adminToggleSuspend;
 window.adminUsersPage = adminUsersPage;
 window.adminReviewsPage = adminReviewsPage;
+window.applyRestaurantFilters = applyRestaurantFilters;
+window.setCuisineFilter = setCuisineFilter;
+window.toggleOpenFilter = toggleOpenFilter;
+window.resetRestaurantFilters = resetRestaurantFilters;
+window.openRestaurantReplyModal = openRestaurantReplyModal;
+window.submitRestaurantReply = submitRestaurantReply;
 
 /* ===== INIT ===== */
 seedData();
